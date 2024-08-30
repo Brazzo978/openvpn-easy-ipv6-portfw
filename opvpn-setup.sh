@@ -79,7 +79,7 @@ management_menu() {
             check_for_script_update
             ;;
         9)
-            toggle_script_location
+            toggleSystemVar
             ;;
         10)
             add_port_forwarding_wizard
@@ -100,26 +100,40 @@ management_menu() {
     esac
 }
 
+# Function to toggle the script location in /usr/bin
+toggleSystemVar() {
+    SCRIPT_NAME="openvpn_manager.sh"
+    SCRIPT_PATH="/usr/bin/$SCRIPT_NAME"
+    CURRENT_SCRIPT=$(readlink -f "$0")  # Get the full path of the currently running script
+
+    # Check if the script exists in /usr/bin
+    if [ -f "$SCRIPT_PATH" ]; then
+        echo "The script is currently added to the system variable. Do you want to remove it? (y/n)"
+        read -r choice
+        if [[ $choice == "y" || $choice == "Y" ]]; then
+            rm "$SCRIPT_PATH"
+            echo "Script has been removed from /usr/bin!"
+        else
+            echo "Action cancelled."
+        fi
+    else
+        echo "The script is not in the system variable. Do you want to add it? (y/n)"
+        read -r choice
+        if [[ $choice == "y" || $choice == "Y" ]]; then
+            cp "$CURRENT_SCRIPT" "$SCRIPT_PATH"
+            chmod +x "$SCRIPT_PATH"
+            echo "Script has been added to /usr/bin!"
+        else
+            echo "Action cancelled."
+        fi
+    fi
+}
+
 # Function to check for script updates
 check_for_script_update() {
     echo "Checking for script updates..."
     # Placeholder for checking script updates
     echo "This function is not yet implemented."
-}
-
-# Function to toggle the script to /usr/bin
-toggle_script_location() {
-    SCRIPT_NAME="openvpn_manager.sh"
-    if [ -f "/usr/bin/$SCRIPT_NAME" ]; then
-        echo "Removing script from /usr/bin..."
-        rm "/usr/bin/$SCRIPT_NAME"
-        echo "Script removed from /usr/bin."
-    else
-        echo "Copying script to /usr/bin..."
-        cp "$0" "/usr/bin/$SCRIPT_NAME"
-        chmod +x "/usr/bin/$SCRIPT_NAME"
-        echo "Script copied to /usr/bin."
-    fi
 }
 
 # Function to add port forwarding via a wizard
