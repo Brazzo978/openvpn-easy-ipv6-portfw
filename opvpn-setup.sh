@@ -121,6 +121,23 @@ prompt_for_ip() {
     VPN_NETWORK="$VPN_IP"
 }
 
+# Function to prompt user for MTU and calculate MSS
+prompt_for_mtu() {
+    local default_mtu="1420"
+    while true; do
+        echo "The recommended MTU value is 1420."
+        read -rp "Enter the MTU value for the tunnel (1280-1492) [Press Enter to use $default_mtu]: " TUN_MTU
+        TUN_MTU=${TUN_MTU:-$default_mtu}
+        if [[ $TUN_MTU -ge 1280 && $TUN_MTU -le 1492 ]]; then
+            MSS_FIX=$((TUN_MTU - 40))
+            echo "MTU set to $TUN_MTU and MSS Fix calculated as $MSS_FIX."
+            break
+        else
+            echo "Invalid MTU. Please enter a value between 1280 and 1492."
+        fi
+    done
+}
+
 # Function to prompt user for encryption method
 prompt_for_encryption() {
     echo "Choose the encryption method for OpenVPN:"
@@ -194,8 +211,8 @@ push \"dhcp-option DNS 1.1.1.1\"
 push \"dhcp-option DNS 1.0.0.1\"
 keepalive 10 120
 cipher $ENCRYPTION
-tun-mtu 1420
-mssfix 1380
+tun-mtu $TUN_MTU
+mssfix $MSS_FIX
 user nobody
 group nogroup
 persist-key
@@ -210,9 +227,25 @@ verb 3" > /etc/openvpn/server.conf
     echo "OpenVPN is configured to use port $RANDOM_PORT."
 }
 
-# Function to configure iptables for port forwarding (now removed)
+# Function to configure basic iptables rules
 configure_iptables() {
-    echo "No port forwarding configuration needed."
+    SERVER_PUB_NIC=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
+    SERVER_TUN_NIC="tun0"
+
+    echo "Configuring iptables..."
+
+    # Enable IPv4 forwarding
+    echo 1 > /proc/sys/net/ipv4/ip_forward
+
+    # IPv4 iptables rules
+    iptables -A FORWARD -i ${SERVER_PUB_NIC} -o ${SERVER_TUN_NIC} -j ACCEPT
+    iptables -A FORWARD -i ${SERVER_TUN_NIC} -j ACCEPT
+    iptables -t nat -A POSTROUTING -o ${SERVER_PUB_NIC} -j MASQUERADE
+
+    # Save the iptables rules
+    iptables-save > /etc/iptables/rules.v4
+
+    echo "Iptables configuration complete."
 }
 
 # Function to move SSH to a different port
@@ -286,8 +319,8 @@ persist-tun
 remote-cert-tls server
 auth SHA256
 cipher $ENCRYPTION
-tun-mtu 1420
-mssfix 1380
+tun-mtu $TUN_MTU
+mssfix $MSS_FIX
 setenv opt block-outside-dns
 key-direction 1
 verb 3
@@ -337,6 +370,9 @@ else
             udp ) PROTOCOL="udp"; break;;
         esac
     done
+
+    # Ask for MTU and calculate MSS fix
+    prompt_for_mtu
 
     # Ask for encryption method
     prompt_for_encryption
