@@ -42,8 +42,9 @@ management_menu() {
     echo "3. Add a new client"
     echo "4. Remove a client"
     echo "5. List clients"
-    echo "6. Remove the tunnel"
-    echo "7. Exit"
+    echo "6. Check client status"
+    echo "7. Remove the tunnel"
+    echo "8. Exit"
     read -rp "Select an option: " option
 
     case $option in
@@ -64,9 +65,12 @@ management_menu() {
             list_clients
             ;;
         6)
-            remove_openvpn
+            check_client_status
             ;;
         7)
+            remove_openvpn
+            ;;
+        8)
             exit 0
             ;;
         *)
@@ -196,7 +200,7 @@ user nobody
 group nogroup
 persist-key
 persist-tun
-status openvpn-status.log
+status /var/log/openvpn-status.log
 verb 3" > /etc/openvpn/server.conf
 
     # Enable and start the OpenVPN service
@@ -246,6 +250,19 @@ remove_client() {
 list_clients() {
     echo "List of clients:"
     ls /etc/openvpn/easy-rsa/pki/issued/ | grep -v ca.crt | sed 's/.crt//'
+}
+
+# Function to check client status
+check_client_status() {
+    echo "Checking client status..."
+    while read -r client; do
+        ip=$(grep "$client" /var/log/openvpn-status.log | awk '{print $1}')
+        if [ -n "$ip" ]; then
+            echo "$client is online with IP $ip"
+        else
+            echo "$client is offline"
+        fi
+    done < <(ls /etc/openvpn/easy-rsa/pki/issued/ | grep -v ca.crt | sed 's/.crt//')
 }
 
 # Function to create client configuration with embedded certificates and keys
