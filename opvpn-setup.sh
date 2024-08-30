@@ -39,8 +39,11 @@ management_menu() {
     echo "OpenVPN is already installed. What would you like to do?"
     echo "1. Check tunnel status"
     echo "2. Restart the tunnel"
-    echo "3. Remove the tunnel"
-    echo "4. Exit"
+    echo "3. Add a new client"
+    echo "4. Remove a client"
+    echo "5. List clients"
+    echo "6. Remove the tunnel"
+    echo "7. Exit"
     read -rp "Select an option: " option
 
     case $option in
@@ -52,9 +55,18 @@ management_menu() {
             echo "OpenVPN tunnel restarted."
             ;;
         3)
-            remove_openvpn
+            add_client
             ;;
         4)
+            remove_client
+            ;;
+        5)
+            list_clients
+            ;;
+        6)
+            remove_openvpn
+            ;;
+        7)
             exit 0
             ;;
         *)
@@ -92,7 +104,7 @@ prompt_for_ip() {
     local default_ip="10.0.0.0"
     while true; do
         echo "It is recommended to use 10.0.0.0/24 for the VPN subnet."
-        read -rp "Enter the VPN base IP address [Press Enter to use $default_ip]: " VPN_IP
+        read -rp "Enter the VPN base IP address (e.g., 10.0.0.0) [Press Enter to use $default_ip]: " VPN_IP
         VPN_IP=${VPN_IP:-$default_ip}
         if validate_ip "$VPN_IP"; then
             break
@@ -194,27 +206,9 @@ verb 3" > /etc/openvpn/server.conf
     echo "OpenVPN is configured to use port $RANDOM_PORT."
 }
 
-# Function to configure iptables for port forwarding
+# Function to configure iptables for port forwarding (now removed)
 configure_iptables() {
-    SERVER_PUB_NIC=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
-    SERVER_TUN_NIC="tun0"
-
-    echo "Configuring iptables for port forwarding..."
-
-    # Enable IPv4 forwarding
-    echo 1 > /proc/sys/net/ipv4/ip_forward
-
-    # IPv4 iptables rules
-    iptables -A FORWARD -i ${SERVER_PUB_NIC} -o ${SERVER_TUN_NIC} -j ACCEPT
-    iptables -A FORWARD -i ${SERVER_TUN_NIC} -j ACCEPT
-    iptables -t nat -A POSTROUTING -o ${SERVER_PUB_NIC} -j MASQUERADE
-    iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p udp --dport 1:65521 -j DNAT --to-destination ${VPN_NETWORK%.*}.2
-    iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p tcp --dport 1:65521 -j DNAT --to-destination ${VPN_NETWORK%.*}.2
-
-    # Save the iptables rules
-    iptables-save > /etc/iptables/rules.v4
-
-    echo "Iptables configuration complete."
+    echo "No port forwarding configuration needed."
 }
 
 # Function to move SSH to a different port
@@ -224,6 +218,34 @@ move_ssh_port() {
     sed -i "s/Port\s\+[0-9]\+/Port 65522/" /etc/ssh/sshd_config
     systemctl restart sshd
     echo "SSH port has been changed to 65522. Please reconnect using this port."
+}
+
+# Function to create a new client
+add_client() {
+    echo "Enter a name for the client configuration file:"
+    read -r CLIENT_NAME
+
+    create_client_config "$CLIENT_NAME" "$PROTOCOL" "$RANDOM_PORT"
+    echo "Client $CLIENT_NAME has been added."
+}
+
+# Function to remove a client
+remove_client() {
+    echo "Enter the name of the client to remove:"
+    read -r CLIENT_NAME
+
+    rm -f "/etc/openvpn/easy-rsa/pki/issued/${CLIENT_NAME}.crt"
+    rm -f "/etc/openvpn/easy-rsa/pki/private/${CLIENT_NAME}.key"
+    rm -f "/etc/openvpn/easy-rsa/pki/reqs/${CLIENT_NAME}.req"
+    rm -f "/root/${CLIENT_NAME}.ovpn"
+
+    echo "Client $CLIENT_NAME has been removed."
+}
+
+# Function to list all clients
+list_clients() {
+    echo "List of clients:"
+    ls /etc/openvpn/easy-rsa/pki/issued/ | grep -v ca.crt | sed 's/.crt//'
 }
 
 # Function to create client configuration with embedded certificates and keys
@@ -275,6 +297,8 @@ remove_openvpn() {
     apt-get remove --purge -y openvpn easy-rsa iptables-persistent
     rm -rf /etc/openvpn
     rm -rf ~/openvpn-ca
+    rm -rf /root/*.ovpn
+    rm -rf /etc/systemd/system/multi-user.target.wants/openvpn@server.service
     echo "OpenVPN and all associated files have been removed."
 }
 
@@ -305,11 +329,7 @@ else
     move_ssh_port
     configure_iptables
 
-    # Ask for a client name and create client config
-    echo "Enter a name for the client configuration file:"
-    read -r CLIENT_NAME
-
-    create_client_config $CLIENT_NAME $PROTOCOL $RANDOM_PORT
-
     echo "OpenVPN installation and configuration completed."
+    echo "You can now add clients using the management menu."
+    management_menu
 fi
