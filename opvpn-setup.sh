@@ -44,7 +44,12 @@ management_menu() {
     echo "5. List clients"
     echo "6. Check client status"
     echo "7. Remove the tunnel"
-    echo "8. Exit"
+    echo "8. Check for script update"
+    echo "9. Toggle the script to /usr/bin"
+    echo "10. Wizard for adding port forwarding to a client"
+    echo "11. List port forwarding rules"
+    echo "12. Remove a port forwarding rule"
+    echo "13. Exit"
     read -rp "Select an option: " option
 
     case $option in
@@ -71,6 +76,21 @@ management_menu() {
             remove_openvpn
             ;;
         8)
+            check_for_script_update
+            ;;
+        9)
+            toggle_script_location
+            ;;
+        10)
+            add_port_forwarding_wizard
+            ;;
+        11)
+            list_port_forwarding_rules
+            ;;
+        12)
+            remove_port_forwarding_rule
+            ;;
+        13)
             exit 0
             ;;
         *)
@@ -78,6 +98,49 @@ management_menu() {
             exit 1
             ;;
     esac
+}
+
+# Function to check for script updates
+check_for_script_update() {
+    echo "Checking for script updates..."
+    # Placeholder for checking script updates
+    echo "This function is not yet implemented."
+}
+
+# Function to toggle the script to /usr/bin
+toggle_script_location() {
+    SCRIPT_NAME="openvpn_manager.sh"
+    if [ -f "/usr/bin/$SCRIPT_NAME" ]; then
+        echo "Removing script from /usr/bin..."
+        rm "/usr/bin/$SCRIPT_NAME"
+        echo "Script removed from /usr/bin."
+    else
+        echo "Copying script to /usr/bin..."
+        cp "$0" "/usr/bin/$SCRIPT_NAME"
+        chmod +x "/usr/bin/$SCRIPT_NAME"
+        echo "Script copied to /usr/bin."
+    fi
+}
+
+# Function to add port forwarding via a wizard
+add_port_forwarding_wizard() {
+    echo "Port forwarding wizard..."
+    # Placeholder for adding port forwarding rules
+    echo "This function is not yet implemented."
+}
+
+# Function to list port forwarding rules
+list_port_forwarding_rules() {
+    echo "Listing port forwarding rules..."
+    # Placeholder for listing port forwarding rules
+    iptables -t nat -L PREROUTING --line-numbers
+}
+
+# Function to remove a port forwarding rule
+remove_port_forwarding_rule() {
+    echo "Removing a port forwarding rule..."
+    # Placeholder for removing a port forwarding rule
+    echo "This function is not yet implemented."
 }
 
 # Function to install OpenVPN
