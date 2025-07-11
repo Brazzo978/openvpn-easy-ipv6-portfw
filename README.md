@@ -11,7 +11,7 @@ This project aims to create an AIO openvpn install script with mixed function , 
 Download and execute the script. Answer the questions asked by the script and it will take care of the rest. For most VPS providers.
 
 ```bash
-wget https://raw.githubusercontent.com/Brazzo978/?
+wget https://raw.githubusercontent.com/Brazzo978/openvpn-easy-ipv6-portfw/refs/heads/main/opvpn-setup.sh
 bash ./openvpn-setup.sh
 ```
 
