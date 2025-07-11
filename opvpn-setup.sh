@@ -1,8 +1,8 @@
 #!/bin/bash
 
-SCRIPT_VERSION="1.0.0"   # <-- Aggiorna qui ad ogni release
-GITHUB_RAW_URL="https://raw.githubusercontent.com/tuo-user/tuo-repo/main/openvpn_manager.sh" # MODIFICA con il tuo URL RAW
-SCRIPT_NAME="openvpn_manager.sh"
+SCRIPT_VERSION="1.0.1"
+GITHUB_RAW_URL="https://raw.githubusercontent.com/Brazzo978/openvpn-easy-ipv6-portfw/refs/heads/main/opvpn-setup.sh"
+SCRIPT_NAME="openvpn-setup.sh"
 SCRIPT_PATH="/usr/bin/$SCRIPT_NAME"
 
 # Variabili globali
