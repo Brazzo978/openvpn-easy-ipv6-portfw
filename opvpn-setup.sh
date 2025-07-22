@@ -47,14 +47,22 @@ check_os() {
 
 # Funzione installazione kernel xanmod (solo TCP)
 install_xanmod_kernel() {
-    echo "Installo kernel xanmod 6.12.15 necessario per TCP con BBR..."
+    echo "Installo kernel xanmod e abilito BBR per TCP..."
     apt-get update
     apt-get install -y wget curl gnupg
     wget -qO- https://dl.xanmod.org/gpg.key | gpg --dearmor -o /usr/share/keyrings/xanmod.gpg
     echo 'deb [signed-by=/usr/share/keyrings/xanmod.gpg] http://deb.xanmod.org releases main' \
         | tee /etc/apt/sources.list.d/xanmod-kernel.list
     apt-get update
-    apt-get install -y linux-image-6.12.15-x64v3-xanmod1
+
+    # Individua l'ultima versione disponibile del kernel xanmod
+    latest_pkg=$(apt-cache search '^linux-image-[0-9.-]*-x64v3-xanmod1$' | sort | tail -n1 | awk '{print $1}')
+    if [ -n "$latest_pkg" ]; then
+        apt-get install -y "$latest_pkg"
+    else
+        echo "Pacchetto xanmod non trovato, procedo senza installare un nuovo kernel."
+    fi
+
     echo "Abilito BBR come scheduler TCP..."
     modprobe tcp_bbr
     echo 'tcp_bbr' | tee /etc/modules-load.d/tcp_bbr.conf
@@ -63,8 +71,7 @@ net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 EOF
     sysctl -p /etc/sysctl.d/60-bbr.conf
-    echo "Riavvio necessario per usare il nuovo kernel!"
-    reboot
+    echo "Riavvia il sistema per usare il nuovo kernel."
 }
 
 # Check se OpenVPN già installato
