@@ -16,6 +16,7 @@ PROTOCOL=""
 USE_IPV6=""
 VPN_NETWORK6=""
 SERVER_PUB_NIC=""
+PF_RULES_FILE="/root/port-forward.rules"
 
 # Funzione per check permessi root
 check_root() {
@@ -414,6 +415,53 @@ remove_openvpn() {
     echo "OpenVPN e tutti i file rimossi."
 }
 
+# Gestione port forwarding
+add_port_forwarding() {
+    echo "IP del client destinatario:"; read -r PEER_IP
+    echo "Porta o intervallo da inoltrare (es 80 o 1000-2000):"; read -r PORT_RANGE
+    if [[ $PORT_RANGE == *-* ]]; then
+        IPTABLES_RULE_TCP="iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p tcp --dport ${PORT_RANGE//\-/:} -j DNAT --to-destination ${PEER_IP}:${PORT_RANGE}"
+        IPTABLES_RULE_UDP="iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p udp --dport ${PORT_RANGE//\-/:} -j DNAT --to-destination ${PEER_IP}:${PORT_RANGE}"
+    else
+        IPTABLES_RULE_TCP="iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p tcp --dport ${PORT_RANGE} -j DNAT --to-destination ${PEER_IP}:${PORT_RANGE}"
+        IPTABLES_RULE_UDP="iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p udp --dport ${PORT_RANGE} -j DNAT --to-destination ${PEER_IP}:${PORT_RANGE}"
+    fi
+    echo "$IPTABLES_RULE_TCP" >> "$PF_RULES_FILE"
+    echo "$IPTABLES_RULE_UDP" >> "$PF_RULES_FILE"
+    chmod +x "$PF_RULES_FILE"
+    eval "$IPTABLES_RULE_TCP"
+    eval "$IPTABLES_RULE_UDP"
+    iptables-save > /etc/iptables/rules.v4
+    echo "Regola aggiunta."
+}
+
+list_port_forwarding() {
+    if [ -f "$PF_RULES_FILE" ]; then
+        nl -ba "$PF_RULES_FILE"
+    else
+        echo "Nessuna regola definita."
+    fi
+}
+
+remove_port_forwarding() {
+    if [ ! -f "$PF_RULES_FILE" ]; then
+        echo "Nessuna regola da rimuovere."
+        return
+    fi
+    list_port_forwarding
+    read -rp "Numero regola da rimuovere: " RULE_NUM
+    RULE=$(sed -n "${RULE_NUM}p" "$PF_RULES_FILE")
+    if [ -z "$RULE" ]; then
+        echo "Numero non valido."
+        return
+    fi
+    REMOVE_RULE=${RULE/-A/-D}
+    eval "$REMOVE_RULE"
+    sed -i "${RULE_NUM}d" "$PF_RULES_FILE"
+    iptables-save > /etc/iptables/rules.v4
+    echo "Regola rimossa."
+}
+
 # Menù management
 management_menu() {
     while true; do
@@ -427,7 +475,10 @@ management_menu() {
         echo "7. Controlla update script"
         echo "8. Toggle script in /usr/bin"
         echo "9. Rimuovi OpenVPN & cleanup"
-        echo "10. Esci"
+        echo "10. Aggiungi port forwarding"
+        echo "11. Lista port forwarding"
+        echo "12. Rimuovi port forwarding"
+        echo "13. Esci"
         read -rp "Scelta: " opzione
         case $opzione in
             1) systemctl status openvpn@server;;
@@ -439,7 +490,10 @@ management_menu() {
             7) check_for_script_update;;
             8) toggleSystemVar;;
             9) remove_openvpn;;
-            10) exit 0;;
+            10) add_port_forwarding;;
+            11) list_port_forwarding;;
+            12) remove_port_forwarding;;
+            13) exit 0;;
             *) echo "Opzione non valida!";;
         esac
     done
