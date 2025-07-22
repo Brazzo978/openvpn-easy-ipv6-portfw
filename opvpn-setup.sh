@@ -18,6 +18,7 @@ VPN_NETWORK6=""
 SERVER_PUB_NIC=""
 PF_RULES_FILE="/etc/openvpn/port-forward.rules"
 
+
 # Funzione per check permessi root
 check_root() {
     if [ "$EUID" -ne 0 ]; then
@@ -460,6 +461,7 @@ remove_openvpn() {
 
 # Gestione port forwarding
 add_port_forwarding() {
+    # chiedi IP client e validalo
     while true; do
         read -rp "IP del client destinatario: " PEER_IP
         if validate_ipv4 "$PEER_IP"; then
@@ -468,39 +470,61 @@ add_port_forwarding() {
             echo "IP non valido."
         fi
     done
+
+    # chiedi porta/intervallo e validalo
     while true; do
         read -rp "Porta o intervallo da inoltrare (es 80 o 1000-2000): " PORT_RANGE
         if [[ $PORT_RANGE =~ ^([0-9]{1,5})-([0-9]{1,5})$ ]]; then
             START=${BASH_REMATCH[1]}
             END=${BASH_REMATCH[2]}
             if (( START<1 || END>65535 || START>END )); then
-                echo "Intervallo non valido."; continue
+                echo "Intervallo non valido."
+                continue
             fi
         elif [[ $PORT_RANGE =~ ^([0-9]{1,5})$ ]]; then
             START=${BASH_REMATCH[1]}
             END=$START
             if (( START<1 || START>65535 )); then
-                echo "Porta non valida."; continue
+                echo "Porta non valida."
+                continue
             fi
         else
-            echo "Formato porta errato."; continue
+            echo "Formato porta errato."
+            continue
         fi
+
+        # non sovrapporsi alla porta VPN
         if (( RANDOM_PORT >= START && RANDOM_PORT <= END )); then
-            echo "Conflitto con la porta OpenVPN ($RANDOM_PORT)."; continue
+            echo "Conflitto con la porta OpenVPN ($RANDOM_PORT)."
+            continue
         fi
-        conflict_with_existing_rules "$START" "$END" && { echo "Conflitto con regola esistente."; continue; }
+
+        # non sovrapporsi ad altre regole
+        conflict_with_existing_rules "$START" "$END" && { 
+            echo "Conflitto con regola esistente."
+            continue
+        }
+
+        # non usare porte già in uso sul sistema
         conflict=0
         for p in $(seq "$START" "$END"); do
             if port_in_use "$p"; then
-                echo "Porta $p già in uso."; conflict=1; break
+                echo "Porta $p già in uso."
+                conflict=1
+                break
             fi
         done
         [[ $conflict -eq 1 ]] && continue
+
         break
     done
+
+    # conferma
     printf "Confermi inoltro porte %s verso %s? [y/N]: " "$PORT_RANGE" "$PEER_IP"
     read -r ans
     [[ $ans =~ ^[Yy]$ ]] || { echo "Annullato"; return; }
+
+    # crea e applica regole iptables
     if [[ $PORT_RANGE == *-* ]]; then
         IPTABLES_RULE_TCP="iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p tcp --dport ${PORT_RANGE//\-/:} -j DNAT --to-destination ${PEER_IP}:${PORT_RANGE}"
         IPTABLES_RULE_UDP="iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p udp --dport ${PORT_RANGE//\-/:} -j DNAT --to-destination ${PEER_IP}:${PORT_RANGE}"
@@ -508,14 +532,18 @@ add_port_forwarding() {
         IPTABLES_RULE_TCP="iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p tcp --dport ${PORT_RANGE} -j DNAT --to-destination ${PEER_IP}:${PORT_RANGE}"
         IPTABLES_RULE_UDP="iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p udp --dport ${PORT_RANGE} -j DNAT --to-destination ${PEER_IP}:${PORT_RANGE}"
     fi
+
     echo "$IPTABLES_RULE_TCP" >> "$PF_RULES_FILE"
     echo "$IPTABLES_RULE_UDP" >> "$PF_RULES_FILE"
     chmod +x "$PF_RULES_FILE"
+
     eval "$IPTABLES_RULE_TCP"
     eval "$IPTABLES_RULE_UDP"
     iptables-save > /etc/iptables/rules.v4
+
     echo "Regola aggiunta."
 }
+
 
 list_port_forwarding() {
     if [ -f "$PF_RULES_FILE" ]; then
