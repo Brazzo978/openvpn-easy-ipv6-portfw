@@ -32,7 +32,7 @@ check_os() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         OS=$ID
-        VERSION_ID=$(echo $VERSION_ID | cut -d '.' -f1)
+        VERSION_ID=$(echo "$VERSION_ID" | cut -d '.' -f1)
         if [[ ("$OS" == "debian" && "$VERSION_ID" -lt 10) || ("$OS" == "ubuntu" && "$VERSION_ID" -lt 18) ]]; then
             echo "Unsupported OS version. Please use Debian 10 or higher, or Ubuntu 18.04 or higher."
             exit 1
@@ -127,11 +127,8 @@ validate_ip() {
     local ip=$1
     local stat=1
     if [[ $ip =~ ^([0-9]{1,3}\.){3}0$ ]]; then
-        OIFS=$IFS
-        IFS='.'
-        ip=($ip)
-        IFS=$OIFS
-        if [[ ${ip[0]} -le 255 && ${ip[1]} -le 255 && ${ip[2]} -le 255 && ${ip[0]} -ge 10 ]]; then
+        IFS='.' read -r -a ip_arr <<< "$ip"
+        if [[ ${ip_arr[0]} -le 255 && ${ip_arr[1]} -le 255 && ${ip_arr[2]} -le 255 && ${ip_arr[0]} -ge 10 ]]; then
             stat=0
         fi
     fi
@@ -389,20 +386,29 @@ remove_client() {
 # List clients
 list_clients() {
     echo "Client esistenti:"
-    ls /etc/openvpn/easy-rsa/pki/issued/ 2>/dev/null | grep -v ca.crt | sed 's/.crt//'
+    for cert in /etc/openvpn/easy-rsa/pki/issued/*.crt; do
+        [ -e "$cert" ] || continue
+        certname=$(basename "$cert")
+        [ "$certname" = "ca.crt" ] && continue
+        echo "${certname%.crt}"
+    done
 }
 
 # Stato client
 check_client_status() {
     echo "Stato client:"
-    while read -r client; do
+    for cert in /etc/openvpn/easy-rsa/pki/issued/*.crt; do
+        [ -e "$cert" ] || continue
+        client=$(basename "$cert")
+        [ "$client" = "ca.crt" ] && continue
+        client=${client%.crt}
         ip=$(grep "$client" /var/log/openvpn-status.log | awk '{print $1}')
         if [ -n "$ip" ]; then
             echo "$client ONLINE ($ip)"
         else
             echo "$client offline"
         fi
-    done < <(ls /etc/openvpn/easy-rsa/pki/issued/ 2>/dev/null | grep -v ca.crt | sed 's/.crt//')
+    done
 }
 
 # Create client config
@@ -575,7 +581,7 @@ remove_port_forwarding() {
 # Menù management
 management_menu() {
     while true; do
-        echo "\n========= OpenVPN Management Menu ========="
+        printf "\n========= OpenVPN Management Menu =========\n"
         echo "1. Stato tunnel"
         echo "2. Riavvia tunnel"
         echo "3. Aggiungi client"
