@@ -12,7 +12,7 @@ Download and execute the script. Answer the questions asked by the script and it
 
 ```bash
 wget https://raw.githubusercontent.com/Brazzo978/openvpn-easy-ipv6-portfw/refs/heads/main/opvpn-setup.sh
-bash ./ovpn-setup.sh
+bash ./opvpn-setup.sh
 ```
 
 It will install openvpn on the server, configure it, Re-Run the script to get the option menù 
