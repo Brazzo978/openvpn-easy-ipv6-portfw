@@ -17,6 +17,8 @@ USE_IPV6=""
 VPN_NETWORK6=""
 SERVER_PUB_NIC=""
 PF_RULES_FILE="/etc/openvpn/port-forward.rules"
+EASYRSA_DIR="/root/openvpn-ca"
+CLIENT_CONF_DIR="/root/clients"
 
 
 # Funzione per check permessi root
@@ -290,8 +292,8 @@ install_openvpn() {
 
 # Configurazione OpenVPN
 configure_openvpn() {
-    make-cadir ~/openvpn-ca
-    cd ~/openvpn-ca || exit 1
+    make-cadir "$EASYRSA_DIR"
+    cd "$EASYRSA_DIR" || exit 1
     ./easyrsa init-pki
     EASYRSA_BATCH=1 ./easyrsa build-ca nopass <<< "test"
     EASYRSA_CERT_EXPIRE=825 EASYRSA_BATCH=1 ./easyrsa gen-req server nopass <<< "test"
@@ -369,24 +371,24 @@ add_client() {
     echo "Nome client da creare:"
     read -r CLIENT_NAME
     create_client_config "$CLIENT_NAME" "$PROTOCOL" "$RANDOM_PORT"
-    echo "Client $CLIENT_NAME creato in /root/$CLIENT_NAME.ovpn."
+    echo "Client $CLIENT_NAME creato in $CLIENT_CONF_DIR/$CLIENT_NAME.ovpn."
 }
 
 # Remove client
 remove_client() {
     echo "Nome client da rimuovere:"
     read -r CLIENT_NAME
-    rm -f "/etc/openvpn/easy-rsa/pki/issued/${CLIENT_NAME}.crt"
-    rm -f "/etc/openvpn/easy-rsa/pki/private/${CLIENT_NAME}.key"
-    rm -f "/etc/openvpn/easy-rsa/pki/reqs/${CLIENT_NAME}.req"
-    rm -f "/root/${CLIENT_NAME}.ovpn"
+    rm -f "$EASYRSA_DIR/pki/issued/${CLIENT_NAME}.crt"
+    rm -f "$EASYRSA_DIR/pki/private/${CLIENT_NAME}.key"
+    rm -f "$EASYRSA_DIR/pki/reqs/${CLIENT_NAME}.req"
+    rm -f "$CLIENT_CONF_DIR/${CLIENT_NAME}.ovpn"
     echo "Client $CLIENT_NAME rimosso."
 }
 
 # List clients
 list_clients() {
     echo "Client esistenti:"
-    for cert in /etc/openvpn/easy-rsa/pki/issued/*.crt; do
+    for cert in "$EASYRSA_DIR"/pki/issued/*.crt; do
         [ -e "$cert" ] || continue
         certname=$(basename "$cert")
         [ "$certname" = "ca.crt" ] && continue
@@ -397,7 +399,7 @@ list_clients() {
 # Stato client
 check_client_status() {
     echo "Stato client:"
-    for cert in /etc/openvpn/easy-rsa/pki/issued/*.crt; do
+    for cert in "$EASYRSA_DIR"/pki/issued/*.crt; do
         [ -e "$cert" ] || continue
         client=$(basename "$cert")
         [ "$client" = "ca.crt" ] && continue
@@ -415,7 +417,8 @@ check_client_status() {
 create_client_config() {
     CLIENT_NAME=$1
     SERVER_IP=$(curl -s4 ifconfig.me)
-    cd ~/openvpn-ca || exit 1
+    cd "$EASYRSA_DIR" || exit 1
+    mkdir -p "$CLIENT_CONF_DIR"
     EASYRSA_CERT_EXPIRE=825 EASYRSA_BATCH=1 ./easyrsa gen-req "$CLIENT_NAME" nopass <<< "$CLIENT_NAME"
     EASYRSA_CERT_EXPIRE=825 EASYRSA_BATCH=1 ./easyrsa sign-req client "$CLIENT_NAME" <<< "yes"
     {
@@ -437,19 +440,19 @@ create_client_config() {
         echo "key-direction 1"
         echo "verb 3"
         echo "<ca>"
-        cat ~/openvpn-ca/pki/ca.crt
+        cat "$EASYRSA_DIR"/pki/ca.crt
         echo "</ca>"
         echo "<cert>"
-        sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' ~/openvpn-ca/pki/issued/"$CLIENT_NAME".crt
+        sed -n '/-----BEGIN CERTIFICATE-----/,/-----END CERTIFICATE-----/p' "$EASYRSA_DIR"/pki/issued/"$CLIENT_NAME".crt
         echo "</cert>"
         echo "<key>"
-        sed -n '/-----BEGIN PRIVATE KEY-----/,/-----END PRIVATE KEY-----/p' ~/openvpn-ca/pki/private/"$CLIENT_NAME".key
+        sed -n '/-----BEGIN PRIVATE KEY-----/,/-----END PRIVATE KEY-----/p' "$EASYRSA_DIR"/pki/private/"$CLIENT_NAME".key
         echo "</key>"
         echo "<tls-auth>"
         cat /etc/openvpn/ta.key
         echo "</tls-auth>"
-    } > /root/"$CLIENT_NAME".ovpn
-    echo "Configurazione client salvata in /root/$CLIENT_NAME.ovpn"
+    } > "$CLIENT_CONF_DIR"/"$CLIENT_NAME".ovpn
+    echo "Configurazione client salvata in $CLIENT_CONF_DIR/$CLIENT_NAME.ovpn"
 }
 
 # Rimuove OpenVPN
@@ -458,8 +461,8 @@ remove_openvpn() {
     systemctl disable openvpn@server
     apt-get remove --purge -y openvpn easy-rsa iptables-persistent
     rm -rf /etc/openvpn
-    rm -rf ~/openvpn-ca
-    rm -rf /root/*.ovpn
+    rm -rf "$EASYRSA_DIR"
+    rm -rf "$CLIENT_CONF_DIR"/*.ovpn
     rm -f "$PF_RULES_FILE"
     rm -rf /etc/systemd/system/multi-user.target.wants/openvpn@server.service
     echo "OpenVPN e tutti i file rimossi."
