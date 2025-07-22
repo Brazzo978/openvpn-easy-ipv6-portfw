@@ -414,13 +414,16 @@ remove_client() {
 
 # List clients
 list_clients() {
-    echo "Client esistenti:"
+    echo "Client esistenti:" 
+    local i=1
     for cert in "$EASYRSA_DIR"/pki/issued/*.crt; do
         [ -e "$cert" ] || continue
         certname=$(basename "$cert")
         [ "$certname" = "ca.crt" ] && continue
-        echo "${certname%.crt}"
+        printf "  %2d) %s\n" "$i" "${certname%.crt}"
+        i=$((i+1))
     done
+    [ "$i" -eq 1 ] && echo "  Nessun client trovato."
 }
 
 # Stato client
@@ -583,7 +586,15 @@ add_port_forwarding() {
 
 list_port_forwarding() {
     if [ -f "$PF_RULES_FILE" ]; then
-        nl -ba "$PF_RULES_FILE"
+        local i=1
+        while IFS= read -r line; do
+            proto=$(echo "$line" | awk '{for(n=1;n<=NF;n++) if ($n=="-p") print $(n+1)}')
+            dport=$(echo "$line" | awk '{for(n=1;n<=NF;n++) if ($n=="--dport") print $(n+1)}')
+            dest=$(echo "$line" | awk -F'--to-destination ' '{print $2}')
+            printf "  %2d) %s %s -> %s\n" "$i" "$proto" "$dport" "$dest"
+            i=$((i+1))
+        done < "$PF_RULES_FILE"
+        [ "$i" -eq 1 ] && echo "  Nessuna regola definita."
     else
         echo "Nessuna regola definita."
     fi
