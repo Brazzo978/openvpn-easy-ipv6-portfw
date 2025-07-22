@@ -76,6 +76,21 @@ check_if_already_installed() {
     fi
 }
 
+# Carica impostazioni dal file di configurazione esistente
+load_existing_config() {
+    local conf="/etc/openvpn/server.conf"
+    if [[ -f $conf ]]; then
+        RANDOM_PORT=$(grep -E '^port ' "$conf" | awk '{print $2}')
+        PROTOCOL=$(grep -E '^proto ' "$conf" | awk '{print $2}')
+        if grep -q '^server-ipv6 ' "$conf"; then
+            USE_IPV6="yes"
+        else
+            USE_IPV6=""
+        fi
+    fi
+    SERVER_PUB_NIC=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
+}
+
 # Funzione toggle in /usr/bin
 toggleSystemVar() {
     CURRENT_SCRIPT=$(readlink -f "$0")
@@ -623,6 +638,7 @@ check_root
 check_os
 
 if check_if_already_installed; then
+    load_existing_config
     management_menu
 else
     SERVER_PUB_NIC=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
