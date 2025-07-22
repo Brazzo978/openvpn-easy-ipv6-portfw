@@ -420,6 +420,7 @@ list_clients() {
         [ -e "$cert" ] || continue
         certname=$(basename "$cert")
         [ "$certname" = "ca.crt" ] && continue
+        [ "$certname" = "server.crt" ] && continue
         printf "  %2d) %s\n" "$i" "${certname%.crt}"
         i=$((i+1))
     done
@@ -433,6 +434,7 @@ check_client_status() {
         [ -e "$cert" ] || continue
         client=$(basename "$cert")
         [ "$client" = "ca.crt" ] && continue
+        [ "$certname" = "server.crt" ] && continue
         client=${client%.crt}
         ip=$(grep "$client" /var/log/openvpn-status.log | awk '{print $1}')
         if [ -n "$ip" ]; then
