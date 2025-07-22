@@ -47,6 +47,11 @@ check_os() {
 
 # Funzione installazione kernel xanmod (solo TCP)
 install_xanmod_kernel() {
+    # Verifica se il kernel xanmod è già in esecuzione e BBR è abilitato
+    if uname -r | grep -qi xanmod && [ "$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)" = "bbr" ]; then
+        echo "Kernel xanmod e BBR già attivi, salto reinstallazione."
+        return
+    fi
     echo "Installo kernel xanmod e abilito BBR per TCP..."
     apt-get update
     apt-get install -y wget curl gnupg
