@@ -34,3 +34,7 @@ It will install openvpn on the server, configure it, Re-Run the script to get th
 12) remove a previously defined port forwarding rule (requires reboot)
 13) Exit from the script
 
+Port forwarding rules are saved in `/etc/openvpn/port-forward.rules`.
+When defining a new rule the script verifies that the chosen ports are free and
+not already forwarded, then asks for confirmation before applying.
+

@@ -16,7 +16,8 @@ PROTOCOL=""
 USE_IPV6=""
 VPN_NETWORK6=""
 SERVER_PUB_NIC=""
-PF_RULES_FILE="/root/port-forward.rules"
+PF_RULES_FILE="/etc/openvpn/port-forward.rules"
+
 
 # Funzione per check permessi root
 check_root() {
@@ -135,6 +136,48 @@ validate_ip() {
         fi
     fi
     return $stat
+}
+
+# Validazione generica IPv4 (qualsiasi ultimo ottetto)
+validate_ipv4() {
+    local ipaddr=$1
+    local stat=1
+    if [[ $ipaddr =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+        local IFS=.
+        read -r i1 i2 i3 i4 <<<"$ipaddr"
+        if (( i1<=255 && i2<=255 && i3<=255 && i4<=255 )); then
+            stat=0
+        fi
+    fi
+    return $stat
+}
+
+# Controlla se una porta è già in ascolto sul sistema
+port_in_use() {
+    local port=$1
+    ss -ln | grep -qE "[:.]$port\s"
+}
+
+# Verifica conflitti con altre regole di port forwarding
+conflict_with_existing_rules() {
+    local start=$1 end=$2
+    local line r_start r_end
+    [[ -f $PF_RULES_FILE ]] || return 1
+    while read -r line; do
+        if [[ $line =~ --dport\ ([0-9]+):([0-9]+) ]]; then
+            r_start=${BASH_REMATCH[1]}
+            r_end=${BASH_REMATCH[2]}
+        elif [[ $line =~ --dport\ ([0-9]+) ]]; then
+            r_start=${BASH_REMATCH[1]}
+            r_end=$r_start
+        else
+            continue
+        fi
+        if (( start <= r_end && end >= r_start )); then
+            return 0
+        fi
+    done < "$PF_RULES_FILE"
+    return 1
 }
 
 # Prompt IP di base VPN
@@ -411,14 +454,77 @@ remove_openvpn() {
     rm -rf /etc/openvpn
     rm -rf ~/openvpn-ca
     rm -rf /root/*.ovpn
+    rm -f "$PF_RULES_FILE"
     rm -rf /etc/systemd/system/multi-user.target.wants/openvpn@server.service
     echo "OpenVPN e tutti i file rimossi."
 }
 
 # Gestione port forwarding
 add_port_forwarding() {
-    echo "IP del client destinatario:"; read -r PEER_IP
-    echo "Porta o intervallo da inoltrare (es 80 o 1000-2000):"; read -r PORT_RANGE
+    # chiedi IP client e validalo
+    while true; do
+        read -rp "IP del client destinatario: " PEER_IP
+        if validate_ipv4 "$PEER_IP"; then
+            break
+        else
+            echo "IP non valido."
+        fi
+    done
+
+    # chiedi porta/intervallo e validalo
+    while true; do
+        read -rp "Porta o intervallo da inoltrare (es 80 o 1000-2000): " PORT_RANGE
+        if [[ $PORT_RANGE =~ ^([0-9]{1,5})-([0-9]{1,5})$ ]]; then
+            START=${BASH_REMATCH[1]}
+            END=${BASH_REMATCH[2]}
+            if (( START<1 || END>65535 || START>END )); then
+                echo "Intervallo non valido."
+                continue
+            fi
+        elif [[ $PORT_RANGE =~ ^([0-9]{1,5})$ ]]; then
+            START=${BASH_REMATCH[1]}
+            END=$START
+            if (( START<1 || START>65535 )); then
+                echo "Porta non valida."
+                continue
+            fi
+        else
+            echo "Formato porta errato."
+            continue
+        fi
+
+        # non sovrapporsi alla porta VPN
+        if (( RANDOM_PORT >= START && RANDOM_PORT <= END )); then
+            echo "Conflitto con la porta OpenVPN ($RANDOM_PORT)."
+            continue
+        fi
+
+        # non sovrapporsi ad altre regole
+        conflict_with_existing_rules "$START" "$END" && { 
+            echo "Conflitto con regola esistente."
+            continue
+        }
+
+        # non usare porte già in uso sul sistema
+        conflict=0
+        for p in $(seq "$START" "$END"); do
+            if port_in_use "$p"; then
+                echo "Porta $p già in uso."
+                conflict=1
+                break
+            fi
+        done
+        [[ $conflict -eq 1 ]] && continue
+
+        break
+    done
+
+    # conferma
+    printf "Confermi inoltro porte %s verso %s? [y/N]: " "$PORT_RANGE" "$PEER_IP"
+    read -r ans
+    [[ $ans =~ ^[Yy]$ ]] || { echo "Annullato"; return; }
+
+    # crea e applica regole iptables
     if [[ $PORT_RANGE == *-* ]]; then
         IPTABLES_RULE_TCP="iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p tcp --dport ${PORT_RANGE//\-/:} -j DNAT --to-destination ${PEER_IP}:${PORT_RANGE}"
         IPTABLES_RULE_UDP="iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p udp --dport ${PORT_RANGE//\-/:} -j DNAT --to-destination ${PEER_IP}:${PORT_RANGE}"
@@ -426,14 +532,18 @@ add_port_forwarding() {
         IPTABLES_RULE_TCP="iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p tcp --dport ${PORT_RANGE} -j DNAT --to-destination ${PEER_IP}:${PORT_RANGE}"
         IPTABLES_RULE_UDP="iptables -t nat -A PREROUTING -i ${SERVER_PUB_NIC} -p udp --dport ${PORT_RANGE} -j DNAT --to-destination ${PEER_IP}:${PORT_RANGE}"
     fi
+
     echo "$IPTABLES_RULE_TCP" >> "$PF_RULES_FILE"
     echo "$IPTABLES_RULE_UDP" >> "$PF_RULES_FILE"
     chmod +x "$PF_RULES_FILE"
+
     eval "$IPTABLES_RULE_TCP"
     eval "$IPTABLES_RULE_UDP"
     iptables-save > /etc/iptables/rules.v4
+
     echo "Regola aggiunta."
 }
+
 
 list_port_forwarding() {
     if [ -f "$PF_RULES_FILE" ]; then
