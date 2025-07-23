@@ -449,12 +449,22 @@ check_client_status() {
         [ -e "$cert" ] || continue
         client=$(basename "$cert")
         [ "$client" = "ca.crt" ] && continue
-        [ "$certname" = "server.crt" ] && continue
+        [ "$client" = "server.crt" ] && continue
         client=${client%.crt}
-        ip=$(grep "$client" /var/log/openvpn-udp-status.log 2>/dev/null | awk '{print $1}')
-        [ -z "$ip" ] && ip=$(grep "$client" /var/log/openvpn-tcp-status.log 2>/dev/null | awk '{print $1}')
-        if [ -n "$ip" ]; then
-            echo "$client ONLINE ($ip)"
+
+        status_line=$(grep "^CLIENT_LIST,$client," /var/log/openvpn-udp-status.log 2>/dev/null || \
+                     grep "^CLIENT_LIST,$client," /var/log/openvpn-tcp-status.log 2>/dev/null)
+
+        if [ -n "$status_line" ]; then
+            IFS=',' read -r _ _ real_addr _ _ connect_since <<< "$status_line"
+            routing_line=$(grep "^ROUTING_TABLE,.*,$client," /var/log/openvpn-udp-status.log 2>/dev/null || \
+                           grep "^ROUTING_TABLE,.*,$client," /var/log/openvpn-tcp-status.log 2>/dev/null)
+            if [ -n "$routing_line" ]; then
+                IFS=',' read -r _ virtual_addr _ _ _ <<< "$routing_line"
+            else
+                virtual_addr="N/A"
+            fi
+            echo "$client ONLINE (VPN: $virtual_addr, Real: $real_addr, Since: $connect_since)"
         else
             echo "$client offline"
         fi
