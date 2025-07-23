@@ -3,13 +3,13 @@
 // Usage: place this file on a PHP-enabled web server
 
 // --- Configuration ---
-$USERNAME = 'admin';
-$PASSWORD = '123';
-$SCRIPT = __DIR__ . '/opvpn-setup.sh';
+$USERNAME   = 'admin';
+$PASSWORD   = '123';
 $CLIENT_DIR = '/root/clients';
 $EASYRSA_DIR = '/root/openvpn-ca';
-$CCD_DIR = '/etc/openvpn/ccd';
 $IP_MAP_FILE = '/etc/openvpn/client_ips.txt';
+$UDP_STATUS = '/var/log/openvpn-udp-status.log';
+$TCP_STATUS = '/var/log/openvpn-tcp-status.log';
 
 // --- Basic Authentication ---
 if (!isset($_SERVER['PHP_AUTH_USER']) ||
@@ -33,15 +33,29 @@ function list_clients($dir) {
     return $clients;
 }
 
-// Helper: run shell command and capture output
-function run_cmd($cmd) {
-    $output = [];
-    $ret = 0;
-    exec('sudo ' . $cmd . ' 2>&1', $output, $ret);
-    return [implode("\n", $output), $ret === 0];
+// Parse OpenVPN status file and return array of client info
+function parse_status($file) {
+    $info = [];
+    if (!is_file($file)) {
+        return $info;
+    }
+    foreach (file($file) as $line) {
+        if (strpos($line, 'CLIENT_LIST,') === 0) {
+            $parts = explode(',', trim($line));
+            $info[$parts[1]] = [
+                'real' => $parts[2],
+                'since' => $parts[5]
+            ];
+        } elseif (strpos($line, 'ROUTING_TABLE,') === 0) {
+            $parts = explode(',', trim($line));
+            $client = $parts[3];
+            if (isset($info[$client])) {
+                $info[$client]['virtual'] = $parts[1];
+            }
+        }
+    }
+    return $info;
 }
-
-$message = '';
 
 // Handle download
 if (isset($_GET['download'])) {
@@ -52,35 +66,13 @@ if (isset($_GET['download'])) {
         header('Content-Disposition: attachment; filename="' . $name . '.ovpn"');
         readfile($path);
         exit;
-    } else {
-        $message = 'File not found';
     }
 }
 
-// Handle actions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // Create new client
-    if (isset($_POST['create'])) {
-        $name = preg_replace('/[^a-zA-Z0-9_-]/', '', $_POST['name']);
-        $proto = ($_POST['proto'] === 'tcp') ? 'tcp' : 'udp';
-        if ($name) {
-            $cmd = "source $SCRIPT && load_existing_config && create_client_config '$name' '$proto' \$RANDOM_PORT";
-            list($out, $ok) = run_cmd('bash -c ' . escapeshellarg($cmd));
-            $message = $out;
-        }
-    }
-    // Remove client
-    if (isset($_POST['delete'])) {
-        $name = preg_replace('/[^a-zA-Z0-9_-]/', '', $_POST['delete']);
-        if ($name) {
-            $cmd = "rm -f $EASYRSA_DIR/pki/issued/{$name}.crt $EASYRSA_DIR/pki/private/{$name}.key \"$EASYRSA_DIR/pki/reqs/{$name}.req\" $CLIENT_DIR/{$name}.ovpn $CCD_DIR/{$name} && sed -i '/^$name /d' $IP_MAP_FILE";
-            list($out, $ok) = run_cmd('bash -c ' . escapeshellarg($cmd));
-            $message = $out;
-        }
-    }
-}
+// No write actions - read only GUI
 
 $clients = list_clients($CLIENT_DIR);
+$status = array_merge(parse_status($UDP_STATUS), parse_status($TCP_STATUS));
 ?>
 <!doctype html>
 <html>
@@ -100,31 +92,25 @@ button{padding:6px 12px;border:none;border-radius:4px;cursor:pointer;}
 <body>
 <div class="container">
 <h1>OpenVPN Web GUI</h1>
-<?php if($message) echo '<pre>'.htmlspecialchars($message).'</pre>'; ?>
-<h2>Create Client</h2>
-<form method="post">
-<label>Name: <input type="text" name="name" required></label>
-<label>Protocol:
-<select name="proto">
-<option value="udp">UDP</option>
-<option value="tcp">TCP</option>
-</select>
-</label>
-<button class="btn-primary" type="submit" name="create">Create</button>
-</form>
-<h2>Existing Clients</h2>
+<h2>Available Profiles</h2>
 <table class="table">
-<tr><th>Client</th><th>Actions</th></tr>
+<tr><th>Client</th><th>Download</th></tr>
 <?php foreach($clients as $c): ?>
 <tr>
 <td><?php echo htmlspecialchars($c); ?></td>
-<td>
-<a class="btn-primary" href="?download=<?php echo urlencode($c); ?>">Download</a>
-<form method="post" style="display:inline">
-<input type="hidden" name="delete" value="<?php echo htmlspecialchars($c); ?>">
-<button class="btn-danger" type="submit">Delete</button>
-</form>
-</td>
+<td><a class="btn-primary" href="?download=<?php echo urlencode($c); ?>">Download</a></td>
+</tr>
+<?php endforeach; ?>
+</table>
+<h2>Connected Clients</h2>
+<table class="table">
+<tr><th>Client</th><th>Virtual IP</th><th>Real IP</th><th>Since</th></tr>
+<?php foreach($status as $name => $info): ?>
+<tr>
+<td><?php echo htmlspecialchars($name); ?></td>
+<td><?php echo htmlspecialchars($info['virtual'] ?? ''); ?></td>
+<td><?php echo htmlspecialchars($info['real']); ?></td>
+<td><?php echo htmlspecialchars($info['since']); ?></td>
 </tr>
 <?php endforeach; ?>
 </table>

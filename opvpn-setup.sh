@@ -273,7 +273,7 @@ prompt_for_encryption() {
 
 # Imposta porta OpenVPN casuale
 set_random_port() {
-    RANDOM_PORT=$(shuf -i 65523-65535 -n1)
+    RANDOM_PORT=$(shuf -i 65523-65534 -n1)
     echo "Porta OpenVPN selezionata: $RANDOM_PORT"
 }
 
@@ -574,6 +574,49 @@ remove_openvpn() {
     echo "OpenVPN e tutti i file rimossi."
 }
 
+# Abilita o disabilita la Web GUI su Apache
+toggle_webgui() {
+    if [ -f /etc/apache2/sites-available/openvpn-webgui.conf ]; then
+        read -rp "Disattivare la Web GUI? [y/N]: " ans
+        if [[ $ans =~ ^[Yy]$ ]]; then
+            a2dissite openvpn-webgui.conf >/dev/null
+            systemctl reload apache2
+            systemctl disable apache2 >/dev/null
+            rm -f /etc/apache2/sites-available/openvpn-webgui.conf
+            rm -rf /var/www/openvpn
+            echo "Web GUI disattivata."
+        else
+            echo "Azione annullata."
+        fi
+    else
+        read -rp "Attivare la Web GUI su porta 65535? [y/N]: " ans
+        if [[ $ans =~ ^[Yy]$ ]]; then
+            apt-get update
+            apt-get install -y apache2 php libapache2-mod-php curl
+            mkdir -p /var/www/openvpn
+            curl -L https://raw.githubusercontent.com/Brazzo978/openvpn-easy-ipv6-portfw/refs/heads/main/webgui.php -o /var/www/openvpn/index.php
+            chown www-data:www-data /var/www/openvpn/index.php
+            if ! grep -q '^Listen 65535' /etc/apache2/ports.conf; then
+                echo 'Listen 65535' >> /etc/apache2/ports.conf
+            fi
+            cat <<EOF >/etc/apache2/sites-available/openvpn-webgui.conf
+<VirtualHost *:65535>
+    DocumentRoot /var/www/openvpn
+    <Directory /var/www/openvpn>
+        Require all granted
+    </Directory>
+</VirtualHost>
+EOF
+            a2ensite openvpn-webgui.conf >/dev/null
+            systemctl reload apache2
+            systemctl enable apache2 >/dev/null
+            echo "Web GUI attivata su porta 65535."
+        else
+            echo "Azione annullata."
+        fi
+    fi
+}
+
 # Gestione port forwarding
 add_port_forwarding() {
     # chiedi IP client e validalo
@@ -592,14 +635,14 @@ add_port_forwarding() {
         if [[ $PORT_RANGE =~ ^([0-9]{1,5})-([0-9]{1,5})$ ]]; then
             START=${BASH_REMATCH[1]}
             END=${BASH_REMATCH[2]}
-            if (( START<1 || END>65535 || START>END )); then
+            if (( START<1 || END>65534 || START>END )); then
                 echo "Intervallo non valido."
                 continue
             fi
         elif [[ $PORT_RANGE =~ ^([0-9]{1,5})$ ]]; then
             START=${BASH_REMATCH[1]}
             END=$START
-            if (( START<1 || START>65535 )); then
+            if (( START<1 || START>65534 )); then
                 echo "Porta non valida."
                 continue
             fi
@@ -711,7 +754,8 @@ management_menu() {
         echo "10. Aggiungi port forwarding"
         echo "11. Lista port forwarding"
         echo "12. Rimuovi port forwarding"
-        echo "13. Esci"
+        echo "13. Toggle Web GUI"
+        echo "14. Esci"
         read -rp "Scelta: " opzione
         case $opzione in
             1) systemctl status openvpn@server_udp openvpn@server_tcp;;
@@ -726,7 +770,8 @@ management_menu() {
             10) add_port_forwarding;;
             11) list_port_forwarding;;
             12) remove_port_forwarding;;
-            13) exit 0;;
+            13) toggle_webgui;;
+            14) exit 0;;
             *) echo "Opzione non valida!";;
         esac
     done
