@@ -19,6 +19,8 @@ SERVER_PUB_NIC=""
 PF_RULES_FILE="/etc/openvpn/port-forward.rules"
 EASYRSA_DIR="/root/openvpn-ca"
 CLIENT_CONF_DIR="/root/clients"
+CCD_DIR="/etc/openvpn/ccd"
+IP_MAP_FILE="/etc/openvpn/client_ips.txt"
 
 
 # Funzione per check permessi root
@@ -227,9 +229,9 @@ prompt_for_ip() {
     done
     VPN_SUBNET="255.255.255.0"
     VPN_NETWORK="$VPN_IP"
-    IFS='.' read -r o1 o2 o3 o4 <<< "$VPN_IP"
-    VPN_NETWORK_TCP="${o1}.${o2}.$((o3+1)).0"
-    echo "Reti assegnate: UDP $VPN_NETWORK, TCP $VPN_NETWORK_TCP"
+    VPN_NETWORK_TCP="$VPN_IP"
+    echo "Subnet assegnata per UDP/TCP: $VPN_NETWORK"
+
 }
 
 # Prompt MTU
@@ -340,13 +342,36 @@ init_pki() {
     cp pki/ca.crt pki/issued/server.crt pki/private/server.key pki/dh.pem ta.key /etc/openvpn/
 }
 
+
+# Assegna un IP statico al client e lo salva
+assign_client_ip() {
+    local client="$1"
+    local prefix
+    prefix=$(echo "$VPN_NETWORK" | awk -F. '{print $1"."$2"."$3}')
+    mkdir -p "$(dirname "$IP_MAP_FILE")"
+    touch "$IP_MAP_FILE"
+    if grep -q "^$client " "$IP_MAP_FILE"; then
+        grep "^$client " "$IP_MAP_FILE" | awk '{print $2}'
+        return
+    fi
+    local last
+    last=$(awk '{print $2}' "$IP_MAP_FILE" | awk -F. '{print $4}' | sort -n | tail -n1)
+    [ -z "$last" ] && last=1
+    local next=$((last + 1))
+    local ip="${prefix}.${next}"
+    echo "$client $ip" >> "$IP_MAP_FILE"
+    echo "$ip"
+}
+
 # Crea configurazione OpenVPN
 configure_openvpn() {
-    local proto="$1" name="$2" net="$3" status_file="$4"
+    local proto="$1" name="$2" net="$3" status_file="$4" dev="$5"
+    mkdir -p "$CCD_DIR"
     {
         echo "port $RANDOM_PORT"
         echo "proto $proto"
-        echo "dev tun"
+        echo "dev $dev"
+
         echo "ca ca.crt"
         echo "cert server.crt"
         echo "key server.key"
@@ -364,7 +389,7 @@ configure_openvpn() {
             echo "push \"dhcp-option DNS6 2606:4700:4700::1111\""
             echo "push \"dhcp-option DNS6 2606:4700:4700::1001\""
         fi
-        echo "keepalive 10 120"
+       echo "keepalive 10 120"
         echo "cipher $ENCRYPTION"
         echo "tun-mtu $TUN_MTU"
         echo "mssfix $MSS_FIX"
@@ -372,6 +397,7 @@ configure_openvpn() {
         echo "group nogroup"
         echo "persist-key"
         echo "persist-tun"
+        echo "client-config-dir $CCD_DIR"
         echo "status $status_file"
         echo "verb 3"
     } > "/etc/openvpn/${name}.conf"
@@ -413,7 +439,8 @@ add_client() {
     read -r CLIENT_NAME
     CLIENT_PROTO=$(prompt_for_protocol)
     create_client_config "$CLIENT_NAME" "$CLIENT_PROTO" "$RANDOM_PORT"
-    echo "Client $CLIENT_NAME creato in $CLIENT_CONF_DIR/$CLIENT_NAME.ovpn."
+   echo "Client $CLIENT_NAME creato in $CLIENT_CONF_DIR/$CLIENT_NAME.ovpn."
+
 }
 
 # Remove client
@@ -487,6 +514,10 @@ create_client_config() {
     mkdir -p "$CLIENT_CONF_DIR"
     EASYRSA_CERT_EXPIRE=825 EASYRSA_BATCH=1 ./easyrsa gen-req "$CLIENT_NAME" nopass <<< "$CLIENT_NAME"
     EASYRSA_CERT_EXPIRE=825 EASYRSA_BATCH=1 ./easyrsa sign-req client "$CLIENT_NAME" <<< "yes"
+    local ip
+    ip=$(assign_client_ip "$CLIENT_NAME")
+    mkdir -p "$CCD_DIR"
+    echo "ifconfig-push $ip $VPN_SUBNET" > "$CCD_DIR/$CLIENT_NAME"
     {
         echo "client"
         echo "dev tun"
@@ -518,7 +549,7 @@ create_client_config() {
         cat /etc/openvpn/ta.key
         echo "</tls-auth>"
     } > "$CLIENT_CONF_DIR"/"$CLIENT_NAME".ovpn
-    echo "Configurazione client salvata in $CLIENT_CONF_DIR/$CLIENT_NAME.ovpn"
+    echo "Configurazione client salvata in $CLIENT_CONF_DIR/$CLIENT_NAME.ovpn (IP $ip)"
 }
 
 # Rimuove OpenVPN
@@ -712,8 +743,8 @@ else
     prompt_for_ipv6
     install_openvpn
     init_pki
-    configure_openvpn "udp" "server_udp" "$VPN_NETWORK" "/var/log/openvpn-udp-status.log"
-    configure_openvpn "tcp" "server_tcp" "$VPN_NETWORK_TCP" "/var/log/openvpn-tcp-status.log"
+    configure_openvpn "udp" "server_udp" "$VPN_NETWORK" "/var/log/openvpn-udp-status.log" "tunudp"
+    configure_openvpn "tcp" "server_tcp" "$VPN_NETWORK_TCP" "/var/log/openvpn-tcp-status.log" "tuntcp"
     move_ssh_port
     configure_iptables
     echo "Installazione e configurazione OpenVPN completata!"
