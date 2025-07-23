@@ -585,8 +585,7 @@ toggle_webgui() {
             # Rimuove tutte le direttive Listen
             sed -i '/^Listen /d' /etc/apache2/ports.conf
 
-            # Ricarica, ferma e disabilita Apache
-            systemctl reload apache2
+            # Ferma e disabilita Apache
             systemctl stop apache2
             systemctl disable apache2 >/dev/null 2>&1
 
@@ -608,15 +607,20 @@ toggle_webgui() {
             a2enmod proxy_fcgi setenvif >/dev/null
             a2enconf php8.2-fpm >/dev/null
 
+            # Setup web dir
             mkdir -p /var/www/openvpn
             curl -sL https://raw.githubusercontent.com/Brazzo978/openvpn-easy-ipv6-portfw/refs/heads/main/webgui.php \
                  -o /var/www/openvpn/index.php
             chown -R www-data:www-data /var/www/openvpn
 
-            # Disabilita il vhost di default
-            a2dissite 000-default.conf >/dev/null 2>&1
+            # Ask for new GUI password
+            read -rsp "Inserisci nuova password per la GUI: " NEWPASS
+            echo
+            # Replace $PASSWORD = '...'; in the PHP file
+            sed -i "s#^\(\s*\$PASSWORD\s*=\s*\).*\$#\1'${NEWPASS}';#" /var/www/openvpn/index.php
 
-            # Aggiunge solo Listen 65535
+            # Disabilita il vhost di default e setta porta 65535
+            a2dissite 000-default.conf >/dev/null 2>&1
             sed -i '/^Listen /d' /etc/apache2/ports.conf
             echo 'Listen 65535' >> /etc/apache2/ports.conf
 
@@ -638,22 +642,24 @@ EOF
 
             a2ensite openvpn-webgui.conf >/dev/null
 
-            # Imposta i permessi ai log OpenVPN e alla cartella clients
+            # Permessi
             chown root:www-data /var/log/openvpn-*.log
             chmod 640       /var/log/openvpn-*.log
             setfacl -m u:www-data:rx   /root
             setfacl -R -m u:www-data:rx /root/clients
             chmod 750       /root/clients
 
-            systemctl reload apache2
+            # Riavvia Apache
+            systemctl restart apache2
             systemctl enable apache2 >/dev/null
 
-            echo "Web GUI attivata su porta 65535 e permessi configurati."
+            echo "Web GUI attivata su porta 65535, password aggiornata e permessi configurati."
         else
             echo "Azione annullata."
         fi
     fi
 }
+
 
 
 
