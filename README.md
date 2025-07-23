@@ -8,7 +8,7 @@ This project aims to create an AIO openvpn install script with mixed function , 
 - Debian > 10
 
 
-Download and execute the script. Answer the questions asked by the script and it will take care of the rest. During setup you can customise protocol, encryption and, if available, IPv6 support. The OpenVPN port is generated automatically.
+Download and execute the script. Answer the questions asked by the script and it will take care of the rest. The setup now installs both UDP and TCP servers on the same random port (kernel xanmod is automatically installed for BBR). You choose the protocol each time you create a client. Encryption and, if available, IPv6 support can still be customised. The OpenVPN port is generated automatically.
 
 ```bash
 wget https://raw.githubusercontent.com/Brazzo978/openvpn-easy-ipv6-portfw/refs/heads/main/opvpn-setup.sh
