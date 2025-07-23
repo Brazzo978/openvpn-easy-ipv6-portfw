@@ -574,22 +574,27 @@ remove_openvpn() {
     echo "OpenVPN e tutti i file rimossi."
 }
 
-# Abilita o disabilita la Web GUI su Apache
 toggle_webgui() {
     if [ -f /etc/apache2/sites-available/openvpn-webgui.conf ]; then
         read -rp "Disattivare la Web GUI? [y/N]: " ans
         if [[ $ans =~ ^[Yy]$ ]]; then
-            a2dissite openvpn-webgui.conf >/dev/null
-            a2ensite 000-default.conf >/dev/null 2>&1 || true
-            if ! grep -q '^Listen 80' /etc/apache2/ports.conf; then
-                echo 'Listen 80' >> /etc/apache2/ports.conf
-            fi
-            sed -i '/^Listen 65535$/d' /etc/apache2/ports.conf
+            # Disabilita tutti i siti
+            a2dissite openvpn-webgui.conf >/dev/null 2>&1 || true
+            a2dissite 000-default.conf >/dev/null 2>&1 || true
+
+            # Rimuove tutte le direttive Listen (porta 80 e 65535)
+            sed -i '/^Listen /d' /etc/apache2/ports.conf
+
+            # Ricarica, ferma e disabilita Apache
             systemctl reload apache2
-            systemctl disable apache2 >/dev/null
+            systemctl stop apache2
+            systemctl disable apache2 >/dev/null 2>&1
+
+            # Pulisce i file
             rm -f /etc/apache2/sites-available/openvpn-webgui.conf
             rm -rf /var/www/openvpn
-            echo "Web GUI disattivata."
+
+            echo "Web GUI completamente disabilitata. Apache non ascolta più alcuna porta."
         else
             echo "Azione annullata."
         fi
@@ -597,33 +602,51 @@ toggle_webgui() {
         read -rp "Attivare la Web GUI su porta 65535? [y/N]: " ans
         if [[ $ans =~ ^[Yy]$ ]]; then
             apt-get update
-            apt-get install -y apache2 php libapache2-mod-php curl
-            a2enmod php >/dev/null
+            apt-get install -y apache2 php8.2-fpm curl
+
+            # Abilita proxy per FPM
+            a2enmod proxy_fcgi setenvif >/dev/null
+            a2enconf php8.2-fpm >/dev/null
+
             mkdir -p /var/www/openvpn
-            curl -L https://raw.githubusercontent.com/Brazzo978/openvpn-easy-ipv6-portfw/refs/heads/main/webgui.php -o /var/www/openvpn/index.php
-            chown www-data:www-data /var/www/openvpn/index.php
-            a2dissite 000-default.conf >/dev/null 2>&1 || true
-            sed -i '/^Listen 80$/d' /etc/apache2/ports.conf
-            if ! grep -q '^Listen 65535' /etc/apache2/ports.conf; then
-                echo 'Listen 65535' >> /etc/apache2/ports.conf
-            fi
+            curl -sL https://raw.githubusercontent.com/Brazzo978/openvpn-easy-ipv6-portfw/refs/heads/main/webgui.php \
+                 -o /var/www/openvpn/index.php
+            chown -R www-data:www-data /var/www/openvpn
+
+            # Disabilita il vhost di default
+            a2dissite 000-default.conf >/dev/null 2>&1
+
+            # Aggiunge solo Listen 65535
+            sed -i '/^Listen /d' /etc/apache2/ports.conf
+            echo 'Listen 65535' >> /etc/apache2/ports.conf
+
+            # Crea il virtual host con FPM
             cat <<EOF >/etc/apache2/sites-available/openvpn-webgui.conf
 <VirtualHost *:65535>
     DocumentRoot /var/www/openvpn
     <Directory /var/www/openvpn>
+        Options +FollowSymLinks +Indexes
+        AllowOverride All
         Require all granted
+
+        <FilesMatch "\\.php$">
+            SetHandler "proxy:unix:/run/php/php8.2-fpm.sock|fcgi://localhost/"
+        </FilesMatch>
     </Directory>
 </VirtualHost>
 EOF
+
             a2ensite openvpn-webgui.conf >/dev/null
             systemctl reload apache2
             systemctl enable apache2 >/dev/null
+
             echo "Web GUI attivata su porta 65535."
         else
             echo "Azione annullata."
         fi
     fi
 }
+
 
 # Gestione port forwarding
 add_port_forwarding() {
