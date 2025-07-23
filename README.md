@@ -23,7 +23,10 @@ wget https://raw.githubusercontent.com/Brazzo978/openvpn-easy-ipv6-portfw/refs/h
 bash ./opvpn-setup.sh
 ```
 Please be aware that the script is gona change ssh port to 65522 !!!
-It will install OpenVPN on the server and configure it automatically. Re-run the script at any time to access the management menu with all the available options.
+
+It will install OpenVPN on the server and configure it automatically. 
+
+Re-run the script at any time to access the management menu with all the available options.
 
 
 
