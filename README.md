@@ -25,7 +25,7 @@ It will install openvpn on the server, configure it, Re-Run the script to get th
 3) add a new vpn client
 4) remove a vpn client
 5) list current client 
-6) check client status (checks who is connected via openvpn status and via ping)
+6) check client status (shows VPN IP, real address and connection time)
 7) check if the script has been updated and optionally update
 8) put the script in /usr/bin so that you can call the script with the name opvpn-setup (toggle add/remove)
 9) uninstall everything and remove all tunnel files
