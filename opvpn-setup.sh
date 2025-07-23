@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SCRIPT_VERSION="1.1.0"
+SCRIPT_VERSION="1.2.0"
 GITHUB_RAW_URL="https://raw.githubusercontent.com/Brazzo978/openvpn-easy-ipv6-portfw/refs/heads/main/opvpn-setup.sh"
 SCRIPT_NAME="opvpn-setup.sh"
 SCRIPT_PATH="/usr/bin/$SCRIPT_NAME"
