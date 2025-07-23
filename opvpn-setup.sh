@@ -582,7 +582,7 @@ toggle_webgui() {
             a2dissite openvpn-webgui.conf >/dev/null 2>&1 || true
             a2dissite 000-default.conf >/dev/null 2>&1 || true
 
-            # Rimuove tutte le direttive Listen (porta 80 e 65535)
+            # Rimuove tutte le direttive Listen
             sed -i '/^Listen /d' /etc/apache2/ports.conf
 
             # Ricarica, ferma e disabilita Apache
@@ -637,15 +637,24 @@ toggle_webgui() {
 EOF
 
             a2ensite openvpn-webgui.conf >/dev/null
+
+            # Imposta i permessi ai log OpenVPN e alla cartella clients
+            chown root:www-data /var/log/openvpn-*.log
+            chmod 640       /var/log/openvpn-*.log
+            setfacl -m u:www-data:rx   /root
+            setfacl -R -m u:www-data:rx /root/clients
+            chmod 750       /root/clients
+
             systemctl reload apache2
             systemctl enable apache2 >/dev/null
 
-            echo "Web GUI attivata su porta 65535."
+            echo "Web GUI attivata su porta 65535 e permessi configurati."
         else
             echo "Azione annullata."
         fi
     fi
 }
+
 
 
 # Gestione port forwarding
