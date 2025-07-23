@@ -11,7 +11,7 @@ $TCP_STATUS  = '/var/log/openvpn-tcp-status.log';
 $REFRESH_INTERVAL = 10;
 
 // Handle logout
-targetLogout: if (isset($_GET['logout'])) {
+if (isset($_GET['logout'])) {
     session_destroy();
     header('Location: ' . basename(__FILE__));
     exit;
@@ -152,7 +152,7 @@ $status  = get_all_clients_status([$UDP_STATUS, $TCP_STATUS]);
     .logout{background:#d32f2f}
   </style>
 </head>
-<body data-theme="light">
+<body>
   <div class="topbar">
     <h1>OpenVPN Web GUI</h1>
     <div class="toggles">
@@ -186,14 +186,23 @@ $status  = get_all_clients_status([$UDP_STATUS, $TCP_STATUS]);
   </div>
   <script>
     const root = document.documentElement;
-    let accentToggle = false;
+    // initialize theme and accent from localStorage
+    const savedTheme = localStorage.getItem('ovpn-theme') || 'light';
+    const savedAccent = localStorage.getItem('ovpn-accent') === 'true';
+    root.setAttribute('data-theme', savedTheme);
+    if (savedAccent) root.style.setProperty('--primary', '#03a9f4');
+
     function toggleTheme() {
-      const theme = root.getAttribute('data-theme');
-      root.setAttribute('data-theme', theme === 'light' ? 'dark' : 'light');
+      const current = root.getAttribute('data-theme');
+      const next = current === 'light' ? 'dark' : 'light';
+      root.setAttribute('data-theme', next);
+      localStorage.setItem('ovpn-theme', next);
     }
+
     function toggleAccent() {
-      accentToggle = !accentToggle;
-      root.style.setProperty('--primary', accentToggle ? '#03a9f4' : '#6200ea');
+      const useAlt = !(localStorage.getItem('ovpn-accent') === 'true');
+      localStorage.setItem('ovpn-accent', useAlt);
+      root.style.setProperty('--primary', useAlt ? '#03a9f4' : '#6200ea');
     }
   </script>
 </body>
