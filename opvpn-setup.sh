@@ -399,6 +399,7 @@ configure_openvpn() {
         echo "persist-tun"
         echo "client-config-dir $CCD_DIR"
         echo "status $status_file"
+        echo "status-version 2"
         echo "verb 3"
     } > "/etc/openvpn/${name}.conf"
     systemctl enable "openvpn@${name}"
@@ -501,7 +502,12 @@ check_client_status() {
             fi
             echo "$client ONLINE (VPN: $virtual_addr, Real: $real_addr, Since: $connect_since)"
         else
-            echo "$client offline"
+            ip="$(grep -m1 "^$client " "$IP_MAP_FILE" 2>/dev/null | awk '{print $2}')"
+            if [ -n "$ip" ] && ping -c1 -W1 "$ip" >/dev/null 2>&1; then
+                echo "$client ONLINE (ping $ip)"
+            else
+                echo "$client offline"
+            fi
         fi
     done
 }
