@@ -4,7 +4,7 @@
 
 // --- Configuration ---
 $USERNAME = 'admin';
-$PASSWORD = 'change_this_password';
+$PASSWORD = '123';
 $SCRIPT = __DIR__ . '/opvpn-setup.sh';
 $CLIENT_DIR = '/root/clients';
 $EASYRSA_DIR = '/root/openvpn-ca';
