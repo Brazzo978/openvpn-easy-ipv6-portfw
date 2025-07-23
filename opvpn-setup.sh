@@ -231,6 +231,7 @@ prompt_for_ip() {
     VPN_NETWORK="$VPN_IP"
     VPN_NETWORK_TCP="$VPN_IP"
     echo "Subnet assegnata per UDP/TCP: $VPN_NETWORK"
+
 }
 
 # Prompt MTU
@@ -341,6 +342,7 @@ init_pki() {
     cp pki/ca.crt pki/issued/server.crt pki/private/server.key pki/dh.pem ta.key /etc/openvpn/
 }
 
+
 # Assegna un IP statico al client e lo salva
 assign_client_ip() {
     local client="$1"
@@ -369,6 +371,7 @@ configure_openvpn() {
         echo "port $RANDOM_PORT"
         echo "proto $proto"
         echo "dev $dev"
+
         echo "ca ca.crt"
         echo "cert server.crt"
         echo "key server.key"
@@ -386,7 +389,7 @@ configure_openvpn() {
             echo "push \"dhcp-option DNS6 2606:4700:4700::1111\""
             echo "push \"dhcp-option DNS6 2606:4700:4700::1001\""
         fi
-        echo "keepalive 10 120"
+       echo "keepalive 10 120"
         echo "cipher $ENCRYPTION"
         echo "tun-mtu $TUN_MTU"
         echo "mssfix $MSS_FIX"
@@ -436,6 +439,8 @@ add_client() {
     read -r CLIENT_NAME
     CLIENT_PROTO=$(prompt_for_protocol)
     create_client_config "$CLIENT_NAME" "$CLIENT_PROTO" "$RANDOM_PORT"
+   echo "Client $CLIENT_NAME creato in $CLIENT_CONF_DIR/$CLIENT_NAME.ovpn."
+
 }
 
 # Remove client
