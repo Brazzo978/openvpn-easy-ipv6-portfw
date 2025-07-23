@@ -37,7 +37,7 @@ function list_clients($dir) {
 function run_cmd($cmd) {
     $output = [];
     $ret = 0;
-    exec($cmd . ' 2>&1', $output, $ret);
+    exec('sudo ' . $cmd . ' 2>&1', $output, $ret);
     return [implode("\n", $output), $ret === 0];
 }
 
