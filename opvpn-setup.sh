@@ -445,6 +445,14 @@ list_clients() {
 # Stato client
 check_client_status() {
     echo "Stato client:"
+
+    # Determine status file paths from configs if defaults are missing
+    local udp_status="/var/log/openvpn-udp-status.log"
+    local tcp_status="/var/log/openvpn-tcp-status.log"
+
+    [ -f "$udp_status" ] || udp_status=$(grep -m1 '^status ' /etc/openvpn/server_udp.conf 2>/dev/null | awk '{print $2}')
+    [ -f "$tcp_status" ] || tcp_status=$(grep -m1 '^status ' /etc/openvpn/server_tcp.conf 2>/dev/null | awk '{print $2}')
+
     for cert in "$EASYRSA_DIR"/pki/issued/*.crt; do
         [ -e "$cert" ] || continue
         client=$(basename "$cert")
@@ -452,13 +460,13 @@ check_client_status() {
         [ "$client" = "server.crt" ] && continue
         client=${client%.crt}
 
-        status_line=$(grep "^CLIENT_LIST,$client," /var/log/openvpn-udp-status.log 2>/dev/null || \
-                     grep "^CLIENT_LIST,$client," /var/log/openvpn-tcp-status.log 2>/dev/null)
+        status_line=$(grep "^CLIENT_LIST,$client," "$udp_status" 2>/dev/null || \
+                     grep "^CLIENT_LIST,$client," "$tcp_status" 2>/dev/null)
 
         if [ -n "$status_line" ]; then
             IFS=',' read -r _ _ real_addr _ _ connect_since <<< "$status_line"
-            routing_line=$(grep "^ROUTING_TABLE,.*,$client," /var/log/openvpn-udp-status.log 2>/dev/null || \
-                           grep "^ROUTING_TABLE,.*,$client," /var/log/openvpn-tcp-status.log 2>/dev/null)
+            routing_line=$(grep "^ROUTING_TABLE,.*,$client," "$udp_status" 2>/dev/null || \
+                           grep "^ROUTING_TABLE,.*,$client," "$tcp_status" 2>/dev/null)
             if [ -n "$routing_line" ]; then
                 IFS=',' read -r _ virtual_addr _ _ _ <<< "$routing_line"
             else
