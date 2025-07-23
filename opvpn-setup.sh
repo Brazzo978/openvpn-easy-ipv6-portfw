@@ -11,14 +11,16 @@ TUN_MTU=""
 MSS_FIX=""
 RANDOM_PORT=""
 VPN_NETWORK=""
+VPN_NETWORK_TCP=""
 VPN_SUBNET=""
-PROTOCOL=""
 USE_IPV6=""
 VPN_NETWORK6=""
 SERVER_PUB_NIC=""
 PF_RULES_FILE="/etc/openvpn/port-forward.rules"
 EASYRSA_DIR="/root/openvpn-ca"
 CLIENT_CONF_DIR="/root/clients"
+CCD_DIR="/etc/openvpn/ccd"
+IP_MAP_FILE="/etc/openvpn/client_ips.txt"
 
 
 # Funzione per check permessi root
@@ -45,7 +47,7 @@ check_os() {
     fi
 }
 
-# Funzione installazione kernel xanmod (solo TCP)
+# Funzione installazione kernel xanmod
 install_xanmod_kernel() {
     # Verifica se il kernel xanmod è già in esecuzione e BBR è abilitato
     if uname -r | grep -qi xanmod && [ "$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)" = "bbr" ]; then
@@ -81,7 +83,8 @@ EOF
 
 # Check se OpenVPN già installato
 check_if_already_installed() {
-    if systemctl is-active --quiet openvpn@server; then
+    if systemctl is-active --quiet openvpn@server_udp || \
+       systemctl is-active --quiet openvpn@server_tcp; then
         return 0
     else
         return 1
@@ -90,15 +93,20 @@ check_if_already_installed() {
 
 # Carica impostazioni dal file di configurazione esistente
 load_existing_config() {
-    local conf="/etc/openvpn/server.conf"
+    local conf="/etc/openvpn/server_udp.conf"
+    local conf_tcp="/etc/openvpn/server_tcp.conf"
+    [[ -f $conf ]] || conf="$conf_tcp"
     if [[ -f $conf ]]; then
         RANDOM_PORT=$(grep -E '^port ' "$conf" | awk '{print $2}')
-        PROTOCOL=$(grep -E '^proto ' "$conf" | awk '{print $2}')
+        VPN_NETWORK=$(grep -E '^server ' "$conf" | awk '{print $2}')
         if grep -q '^server-ipv6 ' "$conf"; then
             USE_IPV6="yes"
         else
             USE_IPV6=""
         fi
+    fi
+    if [[ -f $conf_tcp ]]; then
+        VPN_NETWORK_TCP=$(grep -E '^server ' "$conf_tcp" | awk '{print $2}')
     fi
     SERVER_PUB_NIC=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
 }
@@ -221,6 +229,8 @@ prompt_for_ip() {
     done
     VPN_SUBNET="255.255.255.0"
     VPN_NETWORK="$VPN_IP"
+    VPN_NETWORK_TCP="$VPN_IP"
+    echo "Subnet assegnata per UDP/TCP: $VPN_NETWORK"
 }
 
 # Prompt MTU
@@ -268,12 +278,13 @@ set_random_port() {
 
 # Prompt protocollo (udp/tcp)
 prompt_for_protocol() {
-    local default_proto="udp"
+    local default_proto="udp" proto
     while true; do
-        read -rp "Protocollo (udp/tcp) [${default_proto}]: " PROTOCOL
-        PROTOCOL=${PROTOCOL:-$default_proto}
-        if [[ $PROTOCOL == "udp" || $PROTOCOL == "tcp" ]]; then
-            break
+        read -rp "Protocollo (udp/tcp) [${default_proto}]: " proto
+        proto=${proto:-$default_proto}
+        if [[ $proto == "udp" || $proto == "tcp" ]]; then
+            echo "$proto"
+            return
         else
             echo "Inserire 'udp' o 'tcp'."
         fi
@@ -317,8 +328,8 @@ install_openvpn() {
     apt-get install -y openvpn easy-rsa iptables-persistent
 }
 
-# Configurazione OpenVPN
-configure_openvpn() {
+# Inizializza PKI e certificati
+init_pki() {
     make-cadir "$EASYRSA_DIR"
     cd "$EASYRSA_DIR" || exit 1
     ./easyrsa init-pki
@@ -328,10 +339,36 @@ configure_openvpn() {
     ./easyrsa gen-dh
     openvpn --genkey --secret ta.key
     cp pki/ca.crt pki/issued/server.crt pki/private/server.key pki/dh.pem ta.key /etc/openvpn/
+}
+
+# Assegna un IP statico al client e lo salva
+assign_client_ip() {
+    local client="$1"
+    local prefix
+    prefix=$(echo "$VPN_NETWORK" | awk -F. '{print $1"."$2"."$3}')
+    mkdir -p "$(dirname "$IP_MAP_FILE")"
+    touch "$IP_MAP_FILE"
+    if grep -q "^$client " "$IP_MAP_FILE"; then
+        grep "^$client " "$IP_MAP_FILE" | awk '{print $2}'
+        return
+    fi
+    local last
+    last=$(awk '{print $2}' "$IP_MAP_FILE" | awk -F. '{print $4}' | sort -n | tail -n1)
+    [ -z "$last" ] && last=1
+    local next=$((last + 1))
+    local ip="${prefix}.${next}"
+    echo "$client $ip" >> "$IP_MAP_FILE"
+    echo "$ip"
+}
+
+# Crea configurazione OpenVPN
+configure_openvpn() {
+    local proto="$1" name="$2" net="$3" status_file="$4" dev="$5"
+    mkdir -p "$CCD_DIR"
     {
         echo "port $RANDOM_PORT"
-        echo "proto $1"
-        echo "dev tun"
+        echo "proto $proto"
+        echo "dev $dev"
         echo "ca ca.crt"
         echo "cert server.crt"
         echo "key server.key"
@@ -339,7 +376,7 @@ configure_openvpn() {
         echo "auth SHA256"
         echo "tls-auth ta.key 0"
         echo "topology subnet"
-        echo "server $VPN_NETWORK $VPN_SUBNET"
+        echo "server $net $VPN_SUBNET"
         echo "push \"redirect-gateway def1 bypass-dhcp\""
         echo "push \"dhcp-option DNS 1.1.1.1\""
         echo "push \"dhcp-option DNS 1.0.0.1\""
@@ -357,18 +394,18 @@ configure_openvpn() {
         echo "group nogroup"
         echo "persist-key"
         echo "persist-tun"
-        echo "status /var/log/openvpn-status.log"
+        echo "client-config-dir $CCD_DIR"
+        echo "status $status_file"
         echo "verb 3"
-    } > /etc/openvpn/server.conf
-    systemctl enable openvpn@server
-    systemctl start openvpn@server
-    echo "OpenVPN in ascolto su porta $RANDOM_PORT."
+    } > "/etc/openvpn/${name}.conf"
+    systemctl enable "openvpn@${name}"
+    systemctl start "openvpn@${name}"
 }
 
 # Configurazione iptables
 configure_iptables() {
     SERVER_PUB_NIC=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
-    SERVER_TUN_NIC="tun0"
+    SERVER_TUN_NIC="tun+"
     echo 1 > /proc/sys/net/ipv4/ip_forward
     iptables -A FORWARD -i "${SERVER_PUB_NIC}" -o "${SERVER_TUN_NIC}" -j ACCEPT
     iptables -A FORWARD -i "${SERVER_TUN_NIC}" -j ACCEPT
@@ -397,8 +434,8 @@ move_ssh_port() {
 add_client() {
     echo "Nome client da creare:"
     read -r CLIENT_NAME
-    create_client_config "$CLIENT_NAME" "$PROTOCOL" "$RANDOM_PORT"
-    echo "Client $CLIENT_NAME creato in $CLIENT_CONF_DIR/$CLIENT_NAME.ovpn."
+    CLIENT_PROTO=$(prompt_for_protocol)
+    create_client_config "$CLIENT_NAME" "$CLIENT_PROTO" "$RANDOM_PORT"
 }
 
 # Remove client
@@ -436,7 +473,8 @@ check_client_status() {
         [ "$client" = "ca.crt" ] && continue
         [ "$certname" = "server.crt" ] && continue
         client=${client%.crt}
-        ip=$(grep "$client" /var/log/openvpn-status.log | awk '{print $1}')
+        ip=$(grep "$client" /var/log/openvpn-udp-status.log 2>/dev/null | awk '{print $1}')
+        [ -z "$ip" ] && ip=$(grep "$client" /var/log/openvpn-tcp-status.log 2>/dev/null | awk '{print $1}')
         if [ -n "$ip" ]; then
             echo "$client ONLINE ($ip)"
         else
@@ -453,6 +491,10 @@ create_client_config() {
     mkdir -p "$CLIENT_CONF_DIR"
     EASYRSA_CERT_EXPIRE=825 EASYRSA_BATCH=1 ./easyrsa gen-req "$CLIENT_NAME" nopass <<< "$CLIENT_NAME"
     EASYRSA_CERT_EXPIRE=825 EASYRSA_BATCH=1 ./easyrsa sign-req client "$CLIENT_NAME" <<< "yes"
+    local ip
+    ip=$(assign_client_ip "$CLIENT_NAME")
+    mkdir -p "$CCD_DIR"
+    echo "ifconfig-push $ip $VPN_SUBNET" > "$CCD_DIR/$CLIENT_NAME"
     {
         echo "client"
         echo "dev tun"
@@ -484,19 +526,22 @@ create_client_config() {
         cat /etc/openvpn/ta.key
         echo "</tls-auth>"
     } > "$CLIENT_CONF_DIR"/"$CLIENT_NAME".ovpn
-    echo "Configurazione client salvata in $CLIENT_CONF_DIR/$CLIENT_NAME.ovpn"
+    echo "Configurazione client salvata in $CLIENT_CONF_DIR/$CLIENT_NAME.ovpn (IP $ip)"
 }
 
 # Rimuove OpenVPN
 remove_openvpn() {
-    systemctl stop openvpn@server
-    systemctl disable openvpn@server
+    systemctl stop openvpn@server_udp 2>/dev/null
+    systemctl stop openvpn@server_tcp 2>/dev/null
+    systemctl disable openvpn@server_udp 2>/dev/null
+    systemctl disable openvpn@server_tcp 2>/dev/null
     apt-get remove --purge -y openvpn easy-rsa iptables-persistent
     rm -rf /etc/openvpn
     rm -rf "$EASYRSA_DIR"
     rm -rf "$CLIENT_CONF_DIR"/*.ovpn
     rm -f "$PF_RULES_FILE"
-    rm -rf /etc/systemd/system/multi-user.target.wants/openvpn@server.service
+    rm -rf /etc/systemd/system/multi-user.target.wants/openvpn@server_udp.service
+    rm -rf /etc/systemd/system/multi-user.target.wants/openvpn@server_tcp.service
     echo "OpenVPN e tutti i file rimossi."
 }
 
@@ -640,8 +685,8 @@ management_menu() {
         echo "13. Esci"
         read -rp "Scelta: " opzione
         case $opzione in
-            1) systemctl status openvpn@server;;
-            2) systemctl restart openvpn@server; echo "Tunnel riavviato.";;
+            1) systemctl status openvpn@server_udp openvpn@server_tcp;;
+            2) systemctl restart openvpn@server_udp openvpn@server_tcp; echo "Tunnel riavviato.";;
             3) add_client;;
             4) remove_client;;
             5) list_clients;;
@@ -667,19 +712,19 @@ if check_if_already_installed; then
     management_menu
 else
     SERVER_PUB_NIC=$(ip route get 8.8.8.8 | awk '{print $5; exit}')
-    prompt_for_protocol
-    if [[ "$PROTOCOL" == "tcp" ]]; then
-        install_xanmod_kernel
-    fi
+    install_xanmod_kernel
     set_random_port
     prompt_for_ip
     prompt_for_mtu
     prompt_for_encryption
     prompt_for_ipv6
     install_openvpn
-    configure_openvpn "$PROTOCOL"
+    init_pki
+    configure_openvpn "udp" "server_udp" "$VPN_NETWORK" "/var/log/openvpn-udp-status.log" "tunudp"
+    configure_openvpn "tcp" "server_tcp" "$VPN_NETWORK_TCP" "/var/log/openvpn-tcp-status.log" "tuntcp"
     move_ssh_port
     configure_iptables
     echo "Installazione e configurazione OpenVPN completata!"
+    echo "Server attivi su porta $RANDOM_PORT (UDP/TCP)"
     management_menu
 fi
