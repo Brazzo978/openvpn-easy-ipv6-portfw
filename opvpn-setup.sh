@@ -580,6 +580,11 @@ toggle_webgui() {
         read -rp "Disattivare la Web GUI? [y/N]: " ans
         if [[ $ans =~ ^[Yy]$ ]]; then
             a2dissite openvpn-webgui.conf >/dev/null
+            a2ensite 000-default.conf >/dev/null 2>&1 || true
+            if ! grep -q '^Listen 80' /etc/apache2/ports.conf; then
+                echo 'Listen 80' >> /etc/apache2/ports.conf
+            fi
+            sed -i '/^Listen 65535$/d' /etc/apache2/ports.conf
             systemctl reload apache2
             systemctl disable apache2 >/dev/null
             rm -f /etc/apache2/sites-available/openvpn-webgui.conf
@@ -593,9 +598,12 @@ toggle_webgui() {
         if [[ $ans =~ ^[Yy]$ ]]; then
             apt-get update
             apt-get install -y apache2 php libapache2-mod-php curl
+            a2enmod php >/dev/null
             mkdir -p /var/www/openvpn
             curl -L https://raw.githubusercontent.com/Brazzo978/openvpn-easy-ipv6-portfw/refs/heads/main/webgui.php -o /var/www/openvpn/index.php
             chown www-data:www-data /var/www/openvpn/index.php
+            a2dissite 000-default.conf >/dev/null 2>&1 || true
+            sed -i '/^Listen 80$/d' /etc/apache2/ports.conf
             if ! grep -q '^Listen 65535' /etc/apache2/ports.conf; then
                 echo 'Listen 65535' >> /etc/apache2/ports.conf
             fi
